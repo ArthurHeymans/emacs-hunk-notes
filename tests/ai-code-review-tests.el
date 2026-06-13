@@ -22,6 +22,15 @@
                             :diff-id "test")
       (funcall fn))))
 
+(defun ai-code-review-test--string-count (needle string)
+  "Return number of non-overlapping NEEDLE matches in STRING."
+  (let ((count 0)
+        (start 0))
+    (while (string-match (regexp-quote needle) string start)
+      (setq start (match-end 0)
+            count (1+ count)))
+    count))
+
 (ert-deftest ai-code-review-diff-parse-hunk-header ()
   (should (equal (ai-code-review-diff-parse-hunk-header "@@ -10,7 +10,9 @@")
                  '(:old-start 10 :old-count 7 :new-start 10 :new-count 9
@@ -126,6 +135,22 @@
        (ai-code-review-edit-comment comment "   ")
        (should (null ai-code-review-comments))))))
 
+(ert-deftest ai-code-review-renumbers-comments-in-diff-order ()
+  (ai-code-review-test--with-fixture
+   (lambda ()
+     (let ((ai-code-review-render-style 'overlay))
+       (goto-char (point-min))
+       (search-forward "+;; added")
+       (let ((lower (ai-code-review-add-comment "Lower hunk")))
+         (should (equal (ai-code-review-comment-id lower) "R1"))
+         (goto-char (point-min))
+         (search-forward "+  (message \"new\")")
+         (let ((upper (ai-code-review-add-comment "Upper hunk")))
+           (should (equal (ai-code-review-comment-id upper) "R1"))
+           (should (equal (ai-code-review-comment-id lower) "R2"))
+           (ai-code-review-remove-comment upper)
+           (should (equal (ai-code-review-comment-id lower) "R1"))))))))
+
 (ert-deftest ai-code-review-region-comment-line-range ()
   (ai-code-review-test--with-fixture
    (lambda ()
@@ -140,6 +165,24 @@
        (should (string-match-p "lines 2-3"
                                (ai-code-review-generate-prompt)))))))
 
+(ert-deftest ai-code-review-region-comment-allows-mixed-side-hunk-block ()
+  (ai-code-review-test--with-fixture
+   (lambda ()
+     (goto-char (point-min))
+     (search-forward "-  (message \"old\")")
+     (beginning-of-line)
+     (push-mark (point) t t)
+     (forward-line 3)
+     (let ((comment (ai-code-review-comment-dwim "Replacement block comment")))
+       (should (eq (ai-code-review-comment-side comment) 'new))
+       (should (= (ai-code-review-comment-old-line-start comment) 2))
+       (should (= (ai-code-review-comment-old-line-end comment) 2))
+       (should (= (ai-code-review-comment-new-line-start comment) 2))
+       (should (= (ai-code-review-comment-new-line-end comment) 3))
+       (let ((prompt (ai-code-review-generate-prompt)))
+         (should (string-match-p "old line 2; new lines 2-3" prompt))
+         (should (string-match-p "Replacement block comment" prompt)))))))
+
 (ert-deftest ai-code-review-prompt-generation ()
   (ai-code-review-test--with-fixture
    (lambda ()
@@ -148,9 +191,58 @@
      (ai-code-review-add-comment "This extra message should be justified.")
      (let ((prompt (ai-code-review-generate-prompt)))
        (should (string-match-p "Repository: /tmp/repo" prompt))
-       (should (string-match-p "## Diff" prompt))
+       (should (string-match-p "## Diff and review comments" prompt))
        (should (string-match-p "Comment R" prompt))
        (should (string-match-p "This extra message" prompt))))))
+
+(ert-deftest ai-code-review-prompt-places-comments-next-to-hunks ()
+  (ai-code-review-test--with-fixture
+   (lambda ()
+     (goto-char (point-min))
+     (search-forward "+  (message \"extra\")")
+     (ai-code-review-add-comment "Comment near first hunk")
+     (let* ((prompt (ai-code-review-generate-prompt))
+            (hunk-pos (string-match-p (regexp-quote "@@ -1,5 +1,6 @@")
+                                      prompt))
+            (comment-pos (string-match-p "Comment R1 on new line 3" prompt)))
+       (should hunk-pos)
+       (should comment-pos)
+       (should (< hunk-pos comment-pos))
+       (should (string-match-p "Review comments for this hunk" prompt))
+       (should-not (string-match-p "## Review comments\n\n### File" prompt))))))
+
+(ert-deftest ai-code-review-prompt-does-not-include-earlier-hunks-for-same-file ()
+  (ai-code-review-test--with-fixture
+   (lambda ()
+     (goto-char (point-min))
+     (search-forward "+;; added")
+     (ai-code-review-add-comment "Second hunk only")
+     (let ((prompt (ai-code-review-generate-prompt)))
+       (should (string-match-p (regexp-quote "@@ -20,3 +21,4 @@") prompt))
+       (should-not (string-match-p (regexp-quote "@@ -1,5 +1,6 @@") prompt))
+       (should-not (string-match-p (regexp-quote "+  (message \"new\")")
+                                   prompt))))))
+
+(ert-deftest ai-code-review-prompt-groups-multiple-commented-hunks-by-file ()
+  (ai-code-review-test--with-fixture
+   (lambda ()
+     (goto-char (point-min))
+     (search-forward "+  (message \"extra\")")
+     (ai-code-review-add-comment "First hunk comment")
+     (goto-char (point-min))
+     (search-forward "+;; added")
+     (ai-code-review-add-comment "Second hunk comment")
+     (let ((prompt (ai-code-review-generate-prompt)))
+       (should (= (ai-code-review-test--string-count "### File: src/foo.el"
+                                                     prompt)
+                  1))
+       (should (string-match-p (regexp-quote "@@ -1,5 +1,6 @@") prompt))
+       (should (string-match-p (regexp-quote "@@ -20,3 +21,4 @@") prompt))
+       (should (string-match-p "First hunk comment" prompt))
+       (should (string-match-p "Second hunk comment" prompt))
+       (should (= (ai-code-review-test--string-count
+                   "Review comments for this hunk" prompt)
+                  2))))))
 
 (ert-deftest ai-code-review-storage-roundtrip ()
   (ai-code-review-test--with-fixture

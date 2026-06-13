@@ -39,7 +39,11 @@
   body
   resolved
   created-at
-  updated-at)
+  updated-at
+  old-line-start
+  old-line-end
+  new-line-start
+  new-line-end)
 
 (defvar-local ai-code-review-comments nil
   "Review comments for the current diff buffer.")
@@ -74,6 +78,63 @@ instead."
 (defun ai-code-review--now-string ()
   "Return an ISO-like timestamp for comment metadata."
   (format-time-string "%Y-%m-%dT%H:%M:%S%z"))
+
+(defun ai-code-review-comment-safe-old-line-start (comment)
+  "Return COMMENT's old-side start line, tolerating pre-range-slot structs."
+  (ignore-errors (ai-code-review-comment-old-line-start comment)))
+
+(defun ai-code-review-comment-safe-old-line-end (comment)
+  "Return COMMENT's old-side end line, tolerating pre-range-slot structs."
+  (ignore-errors (ai-code-review-comment-old-line-end comment)))
+
+(defun ai-code-review-comment-safe-new-line-start (comment)
+  "Return COMMENT's new-side start line, tolerating pre-range-slot structs."
+  (ignore-errors (ai-code-review-comment-new-line-start comment)))
+
+(defun ai-code-review-comment-safe-new-line-end (comment)
+  "Return COMMENT's new-side end line, tolerating pre-range-slot structs."
+  (ignore-errors (ai-code-review-comment-new-line-end comment)))
+
+(defun ai-code-review-comment-normalize (comment)
+  "Normalize COMMENT in place after struct layout changes.
+During development the old/new range slots briefly lived before
+`change-type'.  Live comments created with that layout can still exist in an
+Emacs session after reloading the package.  Detect that shifted shape and move
+the slots to the current layout, where optional range slots are appended at the
+end for better reload compatibility."
+  (when (and (>= (length comment) 21)
+             ;; In the shifted layout, BODY's current slot contains a line
+             ;; number/nil and the real body is four slots later.
+             (not (stringp (aref comment 13)))
+             (stringp (aref comment 17)))
+    (let ((old-line-start (aref comment 10))
+          (old-line-end (aref comment 11))
+          (new-line-start (aref comment 12))
+          (new-line-end (aref comment 13))
+          (change-type (aref comment 14))
+          (hunk-header (aref comment 15))
+          (anchor-context (aref comment 16))
+          (body (aref comment 17))
+          (resolved (aref comment 18))
+          (created-at (aref comment 19))
+          (updated-at (aref comment 20)))
+      (aset comment 10 change-type)
+      (aset comment 11 hunk-header)
+      (aset comment 12 anchor-context)
+      (aset comment 13 body)
+      (aset comment 14 resolved)
+      (aset comment 15 created-at)
+      (aset comment 16 updated-at)
+      (aset comment 17 old-line-start)
+      (aset comment 18 old-line-end)
+      (aset comment 19 new-line-start)
+      (aset comment 20 new-line-end)))
+  comment)
+
+(defun ai-code-review-normalize-comments (&optional comments)
+  "Normalize COMMENTS, defaulting to current buffer comments."
+  (dolist (comment (or comments ai-code-review-comments))
+    (ai-code-review-comment-normalize comment)))
 
 (defun ai-code-review--buffer-diff-string ()
   "Return the current buffer's diff text without review comment blocks.
@@ -112,6 +173,7 @@ not part of the underlying diff and should not be exported as diff content."
 
 (defun ai-code-review-comment-to-plist (comment)
   "Convert COMMENT to a property list suitable for serialization."
+  (ai-code-review-comment-normalize comment)
   (list :id (ai-code-review-comment-id comment)
         :repo-root (ai-code-review-comment-repo-root comment)
         :backend (ai-code-review-comment-backend comment)
@@ -121,6 +183,10 @@ not part of the underlying diff and should not be exported as diff content."
         :side (ai-code-review-comment-side comment)
         :line-start (ai-code-review-comment-line-start comment)
         :line-end (ai-code-review-comment-line-end comment)
+        :old-line-start (ai-code-review-comment-safe-old-line-start comment)
+        :old-line-end (ai-code-review-comment-safe-old-line-end comment)
+        :new-line-start (ai-code-review-comment-safe-new-line-start comment)
+        :new-line-end (ai-code-review-comment-safe-new-line-end comment)
         :change-type (ai-code-review-comment-change-type comment)
         :hunk-header (ai-code-review-comment-hunk-header comment)
         :anchor-context (ai-code-review-comment-anchor-context comment)
@@ -141,6 +207,10 @@ not part of the underlying diff and should not be exported as diff content."
    :side (plist-get plist :side)
    :line-start (plist-get plist :line-start)
    :line-end (plist-get plist :line-end)
+   :old-line-start (plist-get plist :old-line-start)
+   :old-line-end (plist-get plist :old-line-end)
+   :new-line-start (plist-get plist :new-line-start)
+   :new-line-end (plist-get plist :new-line-end)
    :change-type (plist-get plist :change-type)
    :hunk-header (plist-get plist :hunk-header)
    :anchor-context (plist-get plist :anchor-context)
@@ -152,6 +222,7 @@ not part of the underlying diff and should not be exported as diff content."
 (defun ai-code-review--maybe-refresh (&optional persist)
   "Refresh overlays and optionally persist comments.
 PERSIST requests storage only when storage support is available."
+  (ai-code-review-normalize-comments)
   (when (fboundp 'ai-code-review-render-comments)
     (ai-code-review-render-comments))
   (force-mode-line-update)

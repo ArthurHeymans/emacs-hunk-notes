@@ -29,6 +29,19 @@
               (max ai-code-review--id-counter
                    (string-to-number (match-string 1 id))))))))
 
+(defun ai-code-review--renumber-comments (&optional comments)
+  "Sort and renumber COMMENTS, defaulting to current buffer comments.
+Review ids are intentionally buffer-local display ids.  Keep them sequential in
+diff order so prompts and inline blocks read from top to bottom as R1, R2, ..."
+  (let ((renumbered (sort (or comments ai-code-review-comments)
+                          #'ai-code-review-comment<)))
+    (cl-loop for comment in renumbered
+             for n from 1
+             do (setf (ai-code-review-comment-id comment) (format "R%d" n)))
+    (setq ai-code-review-comments renumbered)
+    (ai-code-review--sync-id-counter ai-code-review-comments)
+    ai-code-review-comments))
+
 (defun ai-code-review--apply-position-info-to-comment (comment info)
   "Update COMMENT anchor fields from diff position INFO."
   (setf (ai-code-review-comment-file comment) (plist-get info :file)
@@ -118,9 +131,9 @@ file header format was understood."
 
 (defun ai-code-review--comment-position-info-at-point-or-region ()
   "Return diff position info for point or the active region.
-When the region is active, it must cover changed/context lines in one file,
-one side, and one hunk.  The returned info uses :line for the first selected
-line and :line-end for the last selected line."
+When the region is active, it must cover changed/context lines in one file and
+one hunk.  Mixed old/new selections are allowed; the returned info records both
+old and new ranges when present."
   (if (use-region-p)
       (let ((beg (region-beginning))
             (end (region-end))
@@ -138,20 +151,50 @@ line and :line-end for the last selected line."
           (user-error "Region does not cover changed or context lines in a unified diff"))
         (let* ((first (car infos))
                (file (plist-get first :file))
-               (side (plist-get first :side))
                (hunk (plist-get first :hunk-header)))
           (dolist (info infos)
             (unless (and (equal file (plist-get info :file))
-                         (eq side (plist-get info :side))
                          (equal hunk (plist-get info :hunk-header)))
-              (user-error "Region comments must stay within one file, side, and hunk")))
-          (let ((lines (mapcar (lambda (info) (plist-get info :line)) infos)))
-            (append first
-                    (list :line (apply #'min lines)
-                          :line-end (apply #'max lines))))))
+              (user-error "Region comments must stay within one file and hunk")))
+          (let* ((old-lines (delq nil (mapcar (lambda (info)
+                                                (plist-get info :old-line))
+                                              infos)))
+                 (new-lines (delq nil (mapcar (lambda (info)
+                                                (plist-get info :new-line))
+                                              infos)))
+                 ;; Prefer the new side for mixed selections so the visible
+                 ;; comment anchors to the post-change hunk when possible.
+                 (side (if new-lines 'new 'old))
+                 (side-lines (if (eq side 'new) new-lines old-lines))
+                 (anchor (or (cl-find-if
+                              (lambda (info)
+                                (if (eq side 'new)
+                                    (plist-get info :new-line)
+                                  (plist-get info :old-line)))
+                              infos)
+                             first))
+                 (change-types (delete-dups
+                                (delq nil (mapcar (lambda (info)
+                                                    (plist-get info :change-type))
+                                                  infos)))))
+            (append anchor
+                    (list :side side
+                          :line (apply #'min side-lines)
+                          :line-end (apply #'max side-lines)
+                          :old-line-start (and old-lines (apply #'min old-lines))
+                          :old-line-end (and old-lines (apply #'max old-lines))
+                          :new-line-start (and new-lines (apply #'min new-lines))
+                          :new-line-end (and new-lines (apply #'max new-lines))
+                          :change-type (if (cdr change-types)
+                                           'mixed
+                                         (car change-types)))))))
     (let ((info (ai-code-review-diff-position-info)))
       (when info
-        (append info (list :line-end (plist-get info :line)))))))
+        (append info (list :line-end (plist-get info :line)
+                           :old-line-start (plist-get info :old-line)
+                           :old-line-end (plist-get info :old-line)
+                           :new-line-start (plist-get info :new-line)
+                           :new-line-end (plist-get info :new-line)))))))
 
 (defun ai-code-review--new-comment-from-info (info body)
   "Create and add a new comment from diff position INFO with BODY."
@@ -168,6 +211,10 @@ line and :line-end for the last selected line."
            :line-start (plist-get info :line)
            :line-end (or (plist-get info :line-end)
                          (plist-get info :line))
+           :old-line-start (plist-get info :old-line-start)
+           :old-line-end (plist-get info :old-line-end)
+           :new-line-start (plist-get info :new-line-start)
+           :new-line-end (plist-get info :new-line-end)
            :change-type (plist-get info :change-type)
            :hunk-header (plist-get info :hunk-header)
            :anchor-context (plist-get info :anchor-context)
@@ -176,8 +223,7 @@ line and :line-end for the last selected line."
            :created-at now
            :updated-at now)))
     (push comment ai-code-review-comments)
-    (setq ai-code-review-comments
-          (sort ai-code-review-comments #'ai-code-review-comment<))
+    (ai-code-review--renumber-comments)
     (ai-code-review--maybe-refresh t)
     (message "Added comment %s" (ai-code-review-comment-id comment))
     comment))
@@ -207,14 +253,10 @@ Optional INFO is precomputed diff position information."
 (defun ai-code-review-renumber-comments ()
   "Renumber current buffer's review comments sequentially from R1."
   (interactive)
-  (setq ai-code-review-comments
-        (sort ai-code-review-comments #'ai-code-review-comment<))
-  (cl-loop for comment in ai-code-review-comments
-           for n from 1
-           do (setf (ai-code-review-comment-id comment) (format "R%d" n)
-                    (ai-code-review-comment-updated-at comment)
-                    (ai-code-review--now-string)))
-  (ai-code-review--sync-id-counter ai-code-review-comments)
+  (ai-code-review--renumber-comments)
+  (dolist (comment ai-code-review-comments)
+    (setf (ai-code-review-comment-updated-at comment)
+          (ai-code-review--now-string)))
   (ai-code-review--maybe-refresh t)
   (message "Renumbered %d review comments" (length ai-code-review-comments)))
 
@@ -352,7 +394,7 @@ edit removes an existing comment or cancels a new one."
 (defun ai-code-review--delete-comment (comment)
   "Delete COMMENT without prompting."
   (setq ai-code-review-comments (delq comment ai-code-review-comments))
-  (ai-code-review--sync-id-counter ai-code-review-comments)
+  (ai-code-review--renumber-comments)
   (ai-code-review--maybe-refresh t))
 
 (defun ai-code-review-delete-comment (comment)

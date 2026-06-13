@@ -62,6 +62,8 @@ Interactively, FILE defaults to the local store file for this review."
                       (comments (cdr (assq 'comments data))))
                  (mapcar #'ai-code-review-comment-from-plist comments)))))
         (setq ai-code-review-comments loaded-comments)
+        (when (fboundp 'ai-code-review--renumber-comments)
+          (ai-code-review--renumber-comments ai-code-review-comments))
         (when (fboundp 'ai-code-review--sync-id-counter)
           (ai-code-review--sync-id-counter ai-code-review-comments))))
     (when (fboundp 'ai-code-review-render-comments)

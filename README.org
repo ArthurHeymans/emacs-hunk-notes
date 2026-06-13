@@ -127,6 +127,9 @@ When ~ai-code-review-mode~ is enabled:
 | ~C-c , ?~ | ~ai-code-review-dispatch~                  |
 | ~C-c , d~ | ~ai-code-review-dispatch~                  |
 
+The dispatch command uses a Magit-style Transient menu when ~transient~ is
+available, and falls back to a compact one-key prompt otherwise.
+
 * Commands
 
 ** Core review commands
@@ -142,7 +145,7 @@ When ~ai-code-review-mode~ is enabled:
 - ~ai-code-review-toggle-comments~ :: Hide/show inline comment rendering while keeping review mode active.
 - ~ai-code-review-show-comments~ / ~ai-code-review-hide-comments~ :: Explicitly show or hide inline comment rendering.
 - ~ai-code-review-leave-review~ :: Disable review mode and remove rendered comments, leaving the buffer as a regular diff.
-- ~ai-code-review-dispatch~ :: Open a one-key review action menu.
+- ~ai-code-review-dispatch~ :: Open the review action menu.  This is a Transient menu when available, with a one-key fallback.
 
 ** Prompt commands
 

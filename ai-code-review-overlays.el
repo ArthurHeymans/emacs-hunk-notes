@@ -199,6 +199,7 @@ overlay text only."
 (defun ai-code-review-render-comments ()
   "Render all comments for the current review buffer."
   (interactive)
+  (ai-code-review-normalize-comments)
   (ai-code-review-clear-overlays)
   (when ai-code-review-comments-visible
     (dolist (comment ai-code-review-comments)

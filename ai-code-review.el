@@ -16,6 +16,7 @@
 (require 'cl-lib)
 (require 'subr-x)
 (require 'vc)
+(require 'transient nil t)
 (require 'ai-code-review-core)
 (require 'ai-code-review-diff)
 (require 'ai-code-review-comments)
@@ -27,6 +28,8 @@
 (declare-function ai-code-review-comment-dwim "ai-code-review-comments" (&rest args))
 (declare-function ai-code-review-comment-block-dwim "ai-code-review-comments" (&rest args))
 (declare-function ai-code-review-remove-comment "ai-code-review-comments" (&rest args))
+(declare-function ai-code-review-hide-comments "ai-code-review-overlays" ())
+(declare-function ai-code-review-show-comments "ai-code-review-overlays" ())
 
 (defcustom ai-code-review-auto-enable-in-diff-buffers nil
   "When non-nil, automatically enable review mode in matching diff buffers.
@@ -156,6 +159,8 @@ Set this to nil to use `ai-code-review-render-style' unchanged."
     (?p #'ai-code-review-previous-comment)
     (?l #'ai-code-review-list-comments)
     (?t #'ai-code-review-toggle-comments)
+    (?h #'ai-code-review-hide-comments)
+    (?S #'ai-code-review-show-comments)
     (?r #'ai-code-review-toggle-resolved)
     (?g #'ai-code-review-show-prompt)
     (?y #'ai-code-review-copy-prompt)
@@ -164,15 +169,47 @@ Set this to nil to use `ai-code-review-render-style' unchanged."
     (_ nil)))
 
 ;;;###autoload
-(defun ai-code-review-dispatch ()
-  "Prompt for a common AI review action and run it."
+(defun ai-code-review--read-key-dispatch ()
+  "Prompt for a common AI review action with a single key and run it."
   (interactive)
   (let* ((key (read-key
-               "AI review: c comment, C/b block, x remove, n/p next/prev, l list, t toggle, r resolve, g prompt, y copy, s send, q quit"))
+               "AI review: c comment, C/b block, x remove, n/p next/prev, l list, t toggle, h hide, S show, r resolve, g prompt, y copy, s send, q quit"))
          (command (ai-code-review--dispatch-command key)))
     (unless command
       (user-error "No AI review command bound to %s" (single-key-description key)))
     (call-interactively command)))
+
+(when (featurep 'transient)
+  (transient-define-prefix ai-code-review-transient ()
+    "Transient menu for AI code review commands."
+    [["Comments"
+      ("c" "add/edit" ai-code-review-comment-dwim)
+      ("C" "add/edit block" ai-code-review-comment-block-dwim)
+      ("x" "remove" ai-code-review-remove-comment)
+      ("r" "resolve/reopen" ai-code-review-toggle-resolved)]
+     ["Navigation"
+      ("n" "next" ai-code-review-next-comment)
+      ("p" "previous" ai-code-review-previous-comment)
+      ("l" "list" ai-code-review-list-comments)]
+     ["Display"
+      ("t" "toggle comments" ai-code-review-toggle-comments)
+      ("h" "hide comments" ai-code-review-hide-comments)
+      ("S" "show comments" ai-code-review-show-comments)
+      ("q" "leave review" ai-code-review-leave-review)]
+     ["Prompt / Agent"
+      ("g" "show prompt" ai-code-review-show-prompt)
+      ("y" "copy prompt" ai-code-review-copy-prompt)
+      ("s" "send to agent" ai-code-review-send-prompt-to-agent)]]))
+
+;;;###autoload
+(defun ai-code-review-dispatch ()
+  "Open the AI code review dispatcher.
+Use a Transient menu when `transient' is available; otherwise fall back to a
+single-key prompt."
+  (interactive)
+  (if (fboundp 'ai-code-review-transient)
+      (ai-code-review-transient)
+    (ai-code-review--read-key-dispatch)))
 
 ;;;###autoload
 (define-minor-mode ai-code-review-mode
