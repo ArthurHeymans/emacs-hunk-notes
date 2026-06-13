@@ -218,6 +218,7 @@ overlay text only."
   (interactive)
   (setq ai-code-review-comments-visible nil)
   (ai-code-review-clear-overlays)
+  (force-mode-line-update)
   (message "AI code review comments hidden"))
 
 (defun ai-code-review-show-inline-comments ()
@@ -225,6 +226,7 @@ overlay text only."
   (interactive)
   (setq ai-code-review-comments-visible t)
   (ai-code-review-render-comments)
+  (force-mode-line-update)
   (message "AI code review comments shown"))
 
 (defun ai-code-review-toggle-comments ()
@@ -233,6 +235,8 @@ overlay text only."
   (if ai-code-review-comments-visible
       (ai-code-review-hide-comments)
     (ai-code-review-show-inline-comments)))
+
+(defalias 'ai-code-review-show-comments #'ai-code-review-show-inline-comments)
 
 (provide 'ai-code-review-overlays)
 ;;; ai-code-review-overlays.el ends here

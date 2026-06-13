@@ -79,6 +79,17 @@ the comment attaches to the selected line range, not just the current line.
 C-c , y
 #+end_example
 
+If you want review commands available in ordinary diff buffers automatically,
+enable the opt-in hook:
+
+#+begin_src emacs-lisp
+(setq ai-code-review-auto-enable-in-diff-buffers t)
+#+end_src
+
+Auto-enabled buffers keep comments hidden and use overlay rendering by default,
+so the diff initially looks like a regular diff.  Use ~C-c , t~ or click the
+~AI-Review[...]~ mode-line lighter to show/hide comments.
+
 ** Review Git changes
 
 #+begin_example
@@ -112,6 +123,9 @@ When ~ai-code-review-mode~ is enabled:
 | ~C-c , g~ | ~ai-code-review-show-prompt~               |
 | ~C-c , y~ | ~ai-code-review-copy-prompt~               |
 | ~C-c , s~ | ~ai-code-review-send-prompt-to-agent~      |
+| ~C-c , q~ | ~ai-code-review-leave-review~              |
+| ~C-c , ?~ | ~ai-code-review-dispatch~                  |
+| ~C-c , d~ | ~ai-code-review-dispatch~                  |
 
 * Commands
 
@@ -125,6 +139,10 @@ When ~ai-code-review-mode~ is enabled:
 - ~ai-code-review-toggle-resolved~ :: Toggle resolved/unresolved state.
 - ~ai-code-review-next-comment~ / ~ai-code-review-previous-comment~ :: Navigate comments.
 - ~ai-code-review-list-comments~ :: Show a simple comment list buffer.
+- ~ai-code-review-toggle-comments~ :: Hide/show inline comment rendering while keeping review mode active.
+- ~ai-code-review-show-comments~ / ~ai-code-review-hide-comments~ :: Explicitly show or hide inline comment rendering.
+- ~ai-code-review-leave-review~ :: Disable review mode and remove rendered comments, leaving the buffer as a regular diff.
+- ~ai-code-review-dispatch~ :: Open a one-key review action menu.
 
 ** Prompt commands
 
@@ -204,9 +222,23 @@ For CLI agents, configure a shell command that receives the prompt on stdin:
 ;; (setq ai-code-review-prompt-diff-scope 'full)
 ;; (setq ai-code-review-prompt-diff-scope 'none)
 
+;; Opt in to review commands in diff-mode/Magit/VC/Jujutsu diff buffers.
+(setq ai-code-review-auto-enable-in-diff-buffers t)
+
+;; Auto-enabled buffers default to a normal-looking diff.
+(setq ai-code-review-auto-enable-show-comments nil)
+(setq ai-code-review-auto-enable-render-style 'overlay)
+
+;; Explicit starts show comments by default; change this if desired.
+(setq ai-code-review-show-comments-on-enable t)
+
 ;; Restrict offered handoff adapters.
 (setq ai-code-review-agent-backends '(copy buffer shell gptel pi))
 #+end_src
+
+The mode-line lighter shows comment state, for example ~AI-Review[3 hidden]~ or
+~AI-Review[3 resolved:1]~.  Mouse-1 on the lighter toggles inline comment
+visibility.
 
 * Data model
 
@@ -252,27 +284,31 @@ emacsclient --eval \
 
 Run the included ERT tests:
 
-#+begin_src emacs-lisp
-(let ((default-directory "/path/to/emacs-ai-code-review/"))
-  (add-to-list 'load-path default-directory)
-  (load-file "tests/ai-code-review-tests.el")
-  (mapcar (lambda (name)
-            (let ((res (ert-run-test (ert-get-test name))))
-              (list name (type-of res))))
-          '(ai-code-review-diff-parse-hunk-header
-            ai-code-review-diff-position-added-line
-            ai-code-review-diff-position-removed-line
-            ai-code-review-comments-add-edit-delete
-            ai-code-review-prompt-generation
-            ai-code-review-storage-roundtrip
-            ai-code-review-command-construction)))
+#+begin_src sh
+server=ai-code-review-test
+emacs -Q --daemon=$server
+emacsclient -s $server --eval \
+  '(progn
+     (load-file "/path/to/emacs-ai-code-review/tests/ai-code-review-tests.el")
+     (let ((failures nil)
+           (total 0))
+       (mapatoms
+        (lambda (sym)
+          (when (and (ert-test-boundp sym)
+                     (string-prefix-p "ai-code-review" (symbol-name sym)))
+            (setq total (1+ total))
+            (let ((result (ert-run-test (ert-get-test sym))))
+              (unless (ert-test-passed-p result)
+                (push (list sym result) failures))))))
+       (if failures
+           (error "ERT failures: %S" failures)
+         (format "ok %d tests" total))))'
+emacsclient -s $server --eval '(kill-emacs)'
 #+end_src
 
 * Roadmap
 
 - Better Magit transient integration.
-- Comment list UI with jump actions.
-- Prompt option for only commented hunks.
 - Stronger re-anchoring when a diff changes.
 - Collapsible inline comment display.
 - More complete adapters for agent frontends.

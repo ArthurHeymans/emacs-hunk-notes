@@ -64,6 +64,13 @@
   :type 'boolean
   :group 'ai-code-review)
 
+(defcustom ai-code-review-show-comments-on-enable t
+  "When non-nil, show inline comments when review mode is enabled explicitly.
+Auto-enabled diff buffers use `ai-code-review-auto-enable-show-comments'
+instead."
+  :type 'boolean
+  :group 'ai-code-review)
+
 (defun ai-code-review--now-string ()
   "Return an ISO-like timestamp for comment metadata."
   (format-time-string "%Y-%m-%dT%H:%M:%S%z"))
@@ -147,6 +154,7 @@ not part of the underlying diff and should not be exported as diff content."
 PERSIST requests storage only when storage support is available."
   (when (fboundp 'ai-code-review-render-comments)
     (ai-code-review-render-comments))
+  (force-mode-line-update)
   (when (and persist ai-code-review-auto-save
              (fboundp 'ai-code-review-save-review))
     (ignore-errors (ai-code-review-save-review))))

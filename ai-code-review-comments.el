@@ -465,7 +465,5 @@ This is the direct remove-this-visible-review-block command."
       (special-mode))
     (display-buffer buf)))
 
-(defalias 'ai-code-review-show-comments #'ai-code-review-list-comments)
-
 (provide 'ai-code-review-comments)
 ;;; ai-code-review-comments.el ends here

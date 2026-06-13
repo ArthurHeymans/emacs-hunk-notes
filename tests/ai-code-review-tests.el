@@ -175,4 +175,71 @@
   (should (equal (ai-code-review-jj-range-args "main" "@")
                  '("diff" "--from" "main" "--to" "@"))))
 
+(ert-deftest ai-code-review-auto-enable-hides-comments-and-uses-overlay-style ()
+  (let ((ai-code-review-auto-enable-in-diff-buffers t)
+        (ai-code-review-auto-enable-show-comments nil)
+        (ai-code-review-auto-enable-render-style 'overlay)
+        (ai-code-review-auto-save nil))
+    (with-temp-buffer
+      (insert-file-contents ai-code-review-test-fixture)
+      (diff-mode)
+      (should ai-code-review-mode)
+      (should ai-code-review--auto-enabled)
+      (should-not ai-code-review-comments-visible)
+      (should (eq ai-code-review-render-style 'overlay)))))
+
+(ert-deftest ai-code-review-open-diff-buffer-preserves-start-metadata ()
+  (let ((ai-code-review-auto-save nil)
+        (name "*ai-code-review-test-open-diff-buffer*"))
+    (unwind-protect
+        (let ((buf (ai-code-review-open-diff-buffer
+                    name
+                    (with-temp-buffer
+                      (insert-file-contents ai-code-review-test-fixture)
+                      (buffer-string))
+                    :repo-root "/tmp/repo"
+                    :backend 'git
+                    :target-revision "working-copy"
+                    :diff-id "open-test"
+                    :comments-visible nil)))
+          (with-current-buffer buf
+            (should (eq major-mode 'diff-mode))
+            (should ai-code-review-mode)
+            (should-not ai-code-review-comments-visible)
+            (should (equal ai-code-review-repo-root "/tmp/repo"))
+            (should (eq ai-code-review-backend 'git))
+            (should (equal ai-code-review-target-revision "working-copy"))
+            (should (equal ai-code-review-diff-id "open-test"))))
+      (when-let ((buf (get-buffer name)))
+        (kill-buffer buf)))))
+
+(ert-deftest ai-code-review-toggle-and-leave-review ()
+  (ai-code-review-test--with-fixture
+   (lambda ()
+     (goto-char (point-min))
+     (search-forward "+  (message \"new\")")
+     (ai-code-review-add-comment "Visible")
+     (should ai-code-review-comments-visible)
+     (ai-code-review-hide-comments)
+     (should-not ai-code-review-comments-visible)
+     (should (null ai-code-review--overlays))
+     (ai-code-review-show-comments)
+     (should ai-code-review-comments-visible)
+     (should ai-code-review--overlays)
+     (ai-code-review-leave-review)
+     (should-not ai-code-review-mode)
+     (should (null ai-code-review--overlays)))))
+
+(ert-deftest ai-code-review-mode-line-lighter-shows-counts ()
+  (ai-code-review-test--with-fixture
+   (lambda ()
+     (goto-char (point-min))
+     (search-forward "+  (message \"new\")")
+     (let ((comment (ai-code-review-add-comment "Count me")))
+       (setf (ai-code-review-comment-resolved comment) t)
+       (setq ai-code-review-comments-visible nil)
+       (let ((lighter (substring-no-properties
+                       (ai-code-review--mode-line-lighter))))
+         (should (string-match-p "AI-Review\\[1 hidden resolved:1\\]" lighter)))))))
+
 ;;; ai-code-review-tests.el ends here
