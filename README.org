@@ -1,0 +1,278 @@
+#+title: ai-code-review.el
+#+author: ai-code-review contributors
+
+~ai-code-review.el~ lets you add local, inline review comments to unified diff
+buffers in Emacs, then export those comments as a structured prompt for an AI
+coding agent.
+
+The package is intentionally local and VC-agnostic at its core: comments attach
+to changed lines in ordinary ~diff-mode~ buffers. Git, Jujutsu, VC, Magit, and
+AI-agent integrations are thin optional adapters around that core workflow.
+
+* Status
+
+Early implementation. The current package supports the first useful vertical
+slice:
+
+- Review any unified diff buffer with ~ai-code-review-mode~.
+- Add/edit/delete/resolve inline comments.
+- Render comments as yellow, read-only blocks directly inside the diff buffer.
+- Navigate and list comments.
+- Persist comments locally as Emacs Lisp sexps.
+- Generate/copy/save/show an AI-agent Markdown prompt with only commented hunks by default.
+- Open review buffers from Git and Jujutsu diffs.
+- Soft handoff adapters for copy/buffer/shell, ECA, agent-shell, gptel,
+  gptel-agent, pi-coding-agent, and ai-code-interface.el.
+
+* Installation
+
+Clone this repository and add it to your ~load-path~:
+
+#+begin_src emacs-lisp
+(add-to-list 'load-path "/path/to/emacs-ai-code-review")
+(require 'ai-code-review)
+
+;; Optional entry point modules:
+(require 'ai-code-review-git)
+(require 'ai-code-review-jj)
+(require 'ai-code-review-vc)
+(require 'ai-code-review-magit)
+#+end_src
+
+With ~use-package~:
+
+#+begin_src emacs-lisp
+(use-package ai-code-review
+  :load-path "/path/to/emacs-ai-code-review"
+  :commands (ai-code-review-current-diff-buffer
+             ai-code-review-git-review-working-copy
+             ai-code-review-jj-review-working-copy)
+  :init
+  (require 'ai-code-review-git)
+  (require 'ai-code-review-jj))
+#+end_src
+
+* Quick start
+
+** Review an existing diff buffer
+
+1. Open or create a unified diff buffer.
+2. Run:
+
+#+begin_example
+M-x ai-code-review-current-diff-buffer
+#+end_example
+
+3. Move point to an added, removed, or context line.
+4. Add or edit a comment:
+
+#+begin_example
+C-c , c
+#+end_example
+
+Use ~C-c , C~ instead for a multi-line block editor.  If a region is active,
+the comment attaches to the selected line range, not just the current line.
+
+5. Generate/copy a prompt:
+
+#+begin_example
+C-c , y
+#+end_example
+
+** Review Git changes
+
+#+begin_example
+M-x ai-code-review-git-review-working-copy
+M-x ai-code-review-git-review-revision
+M-x ai-code-review-git-review-range
+#+end_example
+
+** Review Jujutsu changes
+
+#+begin_example
+M-x ai-code-review-jj-review-working-copy
+M-x ai-code-review-jj-review-revision
+M-x ai-code-review-jj-review-range
+#+end_example
+
+* Key bindings
+
+When ~ai-code-review-mode~ is enabled:
+
+| Key       | Command                                    |
+|-----------+--------------------------------------------|
+| ~C-c , c~ | ~ai-code-review-comment-dwim~              |
+| ~C-c , C~ | ~ai-code-review-comment-block-dwim~        |
+| ~C-c , x~ | ~ai-code-review-remove-comment~            |
+| ~C-c , n~ | ~ai-code-review-next-comment~              |
+| ~C-c , p~ | ~ai-code-review-previous-comment~          |
+| ~C-c , l~ | ~ai-code-review-list-comments~             |
+| ~C-c , t~ | ~ai-code-review-toggle-comments~           |
+| ~C-c , r~ | ~ai-code-review-toggle-resolved~           |
+| ~C-c , g~ | ~ai-code-review-show-prompt~               |
+| ~C-c , y~ | ~ai-code-review-copy-prompt~               |
+| ~C-c , s~ | ~ai-code-review-send-prompt-to-agent~      |
+
+* Commands
+
+** Core review commands
+
+- ~ai-code-review-current-diff-buffer~ :: Enable review mode in the current diff buffer.
+- ~ai-code-review-comment-dwim~ :: Add a new comment at point, or edit the existing comment at point in the minibuffer.
+- ~ai-code-review-comment-block-dwim~ :: Add or edit a comment at point in a dedicated buffer; save with ~C-c C-c~, cancel with ~C-c C-k~.
+- ~ai-code-review-delete-comment~ :: Delete the comment at point after confirmation.
+- ~ai-code-review-remove-comment~ :: Remove the visible comment block at point without confirmation. Empty edits also remove the comment.
+- ~ai-code-review-toggle-resolved~ :: Toggle resolved/unresolved state.
+- ~ai-code-review-next-comment~ / ~ai-code-review-previous-comment~ :: Navigate comments.
+- ~ai-code-review-list-comments~ :: Show a simple comment list buffer.
+
+** Prompt commands
+
+- ~ai-code-review-generate-prompt~ :: Return the Markdown prompt as a string.
+- ~ai-code-review-copy-prompt~ :: Copy the prompt to the kill ring.
+- ~ai-code-review-show-prompt~ :: Display the prompt in ~*ai-code-review-prompt*~.
+- ~ai-code-review-save-prompt~ :: Save the prompt to a Markdown file.
+
+** Persistence/export commands
+
+- ~ai-code-review-save-review~ :: Save current review comments locally.
+- ~ai-code-review-load-review~ :: Load saved comments for the current review.
+- ~ai-code-review-export-review-json~ :: Export review metadata/comments as JSON.
+- ~ai-code-review-list-saved-reviews~ :: Open the local review store in Dired.
+
+** VC entry points
+
+- ~ai-code-review-git-review-working-copy~
+- ~ai-code-review-git-review-revision~
+- ~ai-code-review-git-review-range~
+- ~ai-code-review-jj-review-working-copy~
+- ~ai-code-review-jj-review-revision~
+- ~ai-code-review-jj-review-range~
+- ~ai-code-review-vc-review-working-copy~
+- ~ai-code-review-vc-review-revision~
+- ~ai-code-review-vc-review-range~
+- ~ai-code-review-magit-review-current~
+- ~ai-code-review-magit-review-commit~
+- ~ai-code-review-magit-review-range~
+
+* Agent handoff
+
+The safest default is to copy or show a prompt, not auto-submit it. Auto-submit
+is opt-in because coding agents may edit files or run commands.
+
+#+begin_src emacs-lisp
+(setq ai-code-review-default-agent 'copy)
+(setq ai-code-review-auto-submit-to-agent nil)
+#+end_src
+
+Available adapter symbols include:
+
+- ~copy~
+- ~buffer~
+- ~shell~
+- ~agent-shell~
+- ~eca~
+- ~gptel~
+- ~gptel-agent~
+- ~pi~
+- ~ai-code~
+
+Send to an adapter with:
+
+#+begin_example
+M-x ai-code-review-send-prompt-to-agent
+#+end_example
+
+For CLI agents, configure a shell command that receives the prompt on stdin:
+
+#+begin_src emacs-lisp
+(setq ai-code-review-agent-shell-command "my-agent-command")
+(setq ai-code-review-default-agent 'shell)
+#+end_src
+
+* Customization
+
+#+begin_src emacs-lisp
+;; Where local review sexps are saved.
+(setq ai-code-review-storage-directory
+      (locate-user-emacs-file "ai-code-review/reviews/"))
+
+;; Diff scope in generated prompts: only commented hunks by default.
+(setq ai-code-review-prompt-diff-scope 'commented-hunks)
+
+;; Other choices:
+;; (setq ai-code-review-prompt-diff-scope 'full)
+;; (setq ai-code-review-prompt-diff-scope 'none)
+
+;; Restrict offered handoff adapters.
+(setq ai-code-review-agent-backends '(copy buffer shell gptel pi))
+#+end_src
+
+* Data model
+
+Comments store more than only a line number. Each comment records:
+
+- repository root
+- backend
+- base/target revisions
+- file
+- side: ~old~ or ~new~
+- line/range
+- change type: ~added~, ~removed~, or ~context~
+- hunk header
+- nearby anchor context
+- body
+- resolved state
+- timestamps
+
+The nearby context is intended for future robust re-anchoring when diffs change.
+
+* Development
+
+Run byte compilation with Emacs:
+
+#+begin_src sh
+emacsclient --eval \
+  '(let ((default-directory "/path/to/emacs-ai-code-review/"))
+     (add-to-list '\''load-path default-directory)
+     (mapc #'byte-compile-file
+           '\''("ai-code-review-core.el"
+              "ai-code-review-diff.el"
+              "ai-code-review-comments.el"
+              "ai-code-review-overlays.el"
+              "ai-code-review-storage.el"
+              "ai-code-review-prompt.el"
+              "ai-code-review-agents.el"
+              "ai-code-review.el"
+              "ai-code-review-git.el"
+              "ai-code-review-jj.el"
+              "ai-code-review-vc.el"
+              "ai-code-review-magit.el")))'
+#+end_src
+
+Run the included ERT tests:
+
+#+begin_src emacs-lisp
+(let ((default-directory "/path/to/emacs-ai-code-review/"))
+  (add-to-list 'load-path default-directory)
+  (load-file "tests/ai-code-review-tests.el")
+  (mapcar (lambda (name)
+            (let ((res (ert-run-test (ert-get-test name))))
+              (list name (type-of res))))
+          '(ai-code-review-diff-parse-hunk-header
+            ai-code-review-diff-position-added-line
+            ai-code-review-diff-position-removed-line
+            ai-code-review-comments-add-edit-delete
+            ai-code-review-prompt-generation
+            ai-code-review-storage-roundtrip
+            ai-code-review-command-construction)))
+#+end_src
+
+* Roadmap
+
+- Better Magit transient integration.
+- Comment list UI with jump actions.
+- Prompt option for only commented hunks.
+- Stronger re-anchoring when a diff changes.
+- Collapsible inline comment display.
+- More complete adapters for agent frontends.

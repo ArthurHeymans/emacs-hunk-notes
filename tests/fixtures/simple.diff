@@ -1,0 +1,15 @@
+diff --git a/src/foo.el b/src/foo.el
+index 1111111..2222222 100644
+--- a/src/foo.el
++++ b/src/foo.el
+@@ -1,5 +1,6 @@
+ (defun foo ()
+-  (message "old")
++  (message "new")
++  (message "extra")
+   t)
+ 
+@@ -20,3 +21,4 @@
+ (defun bar ()
+   1)
++;; added
