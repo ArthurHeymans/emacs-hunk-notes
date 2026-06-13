@@ -1,4 +1,3 @@
-#+SPDX-License-Identifier: GPL-3.0-or-later
 #+title: hunk-notes.el
 #+author: hunk-notes contributors
 
