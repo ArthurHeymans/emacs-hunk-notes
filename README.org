@@ -1,3 +1,4 @@
+#+SPDX-License-Identifier: GPL-3.0-or-later
 #+title: hunk-notes.el
 #+author: hunk-notes contributors
 
@@ -315,3 +316,7 @@ emacsclient -s $server --eval '(kill-emacs)'
 - Stronger re-anchoring when a diff changes.
 - Collapsible inline comment display.
 - More complete adapters for agent frontends.
+
+* License
+
+GPL-3.0-or-later. See [[file:LICENSE][LICENSE]].

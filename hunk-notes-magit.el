@@ -1,4 +1,5 @@
 ;;; hunk-notes-magit.el --- Magit integration for hunk-notes -*- lexical-binding: t; -*-
+;; SPDX-License-Identifier: GPL-3.0-or-later
 
 ;;; Commentary:
 

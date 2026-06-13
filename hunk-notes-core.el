@@ -1,4 +1,5 @@
 ;;; hunk-notes-core.el --- Core data model for local hunk notes -*- lexical-binding: t; -*-
+;; SPDX-License-Identifier: GPL-3.0-or-later
 
 ;; Copyright (C) 2026
 

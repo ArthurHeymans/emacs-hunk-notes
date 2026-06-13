@@ -1,4 +1,5 @@
 ;;; hunk-notes-git.el --- Git entry points for hunk-notes -*- lexical-binding: t; -*-
+;; SPDX-License-Identifier: GPL-3.0-or-later
 
 ;;; Commentary:
 

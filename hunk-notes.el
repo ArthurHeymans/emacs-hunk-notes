@@ -1,4 +1,5 @@
 ;;; hunk-notes.el --- Local inline hunk notes for AI agents -*- lexical-binding: t; -*-
+;; SPDX-License-Identifier: GPL-3.0-or-later
 
 ;; Author: hunk-notes contributors
 ;; Version: 0.1.0
