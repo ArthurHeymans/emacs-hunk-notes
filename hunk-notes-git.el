@@ -1,32 +1,32 @@
-;;; ai-code-review-git.el --- Git entry points for ai-code-review -*- lexical-binding: t; -*-
+;;; hunk-notes-git.el --- Git entry points for hunk-notes -*- lexical-binding: t; -*-
 
 ;;; Commentary:
 
-;; Commands that create Git diffs and enable `ai-code-review-mode'.
+;; Commands that create Git diffs and enable `hunk-notes-mode'.
 
 ;;; Code:
 
 (require 'subr-x)
-(require 'ai-code-review)
+(require 'hunk-notes)
 
-(defun ai-code-review-git-root ()
+(defun hunk-notes-git-root ()
   "Return the current Git repository root, or signal an error."
   (or (locate-dominating-file default-directory ".git")
       (user-error "Not in a Git repository")))
 
-(defun ai-code-review-git-working-copy-args ()
+(defun hunk-notes-git-working-copy-args ()
   "Return the Git command arguments for a working-copy diff."
   '("diff" "--no-ext-diff" "--"))
 
-(defun ai-code-review-git-revision-args (revision)
+(defun hunk-notes-git-revision-args (revision)
   "Return Git command arguments for showing REVISION as a patch."
   (list "show" "--format=fuller" "--stat" "--patch" revision))
 
-(defun ai-code-review-git-range-args (base target)
+(defun hunk-notes-git-range-args (base target)
   "Return Git command arguments for diffing BASE to TARGET."
   (list "diff" "--no-ext-diff" base target "--"))
 
-(defun ai-code-review-git--run (root args)
+(defun hunk-notes-git--run (root args)
   "Run Git in ROOT with ARGS and return stdout as a string."
   (unless (executable-find "git")
     (user-error "git executable not found"))
@@ -39,10 +39,10 @@
                       (buffer-string))))
       (buffer-string))))
 
-(defun ai-code-review-git--review (root args buffer-name base target diff-id)
+(defun hunk-notes-git--review (root args buffer-name base target diff-id)
   "Create a review buffer from Git ARGS in ROOT."
-  (let ((diff (ai-code-review-git--run root args)))
-    (ai-code-review-open-diff-buffer
+  (let ((diff (hunk-notes-git--run root args)))
+    (hunk-notes-open-diff-buffer
      buffer-name diff
      :repo-root root
      :backend 'git
@@ -51,33 +51,33 @@
      :diff-id diff-id)))
 
 ;;;###autoload
-(defun ai-code-review-git-review-working-copy ()
+(defun hunk-notes-git-review-working-copy ()
   "Review `git diff' for the current working copy."
   (interactive)
-  (let ((root (ai-code-review-git-root)))
-    (ai-code-review-git--review
-     root (ai-code-review-git-working-copy-args)
-     "*ai-code-review git working copy*" nil "working-copy" "git-working-copy")))
+  (let ((root (hunk-notes-git-root)))
+    (hunk-notes-git--review
+     root (hunk-notes-git-working-copy-args)
+     "*hunk-notes git working copy*" nil "working-copy" "git-working-copy")))
 
 ;;;###autoload
-(defun ai-code-review-git-review-revision (revision)
+(defun hunk-notes-git-review-revision (revision)
   "Review Git REVISION with `git show'."
   (interactive "sGit revision: ")
-  (let ((root (ai-code-review-git-root)))
-    (ai-code-review-git--review
-     root (ai-code-review-git-revision-args revision)
-     (format "*ai-code-review git %s*" revision)
+  (let ((root (hunk-notes-git-root)))
+    (hunk-notes-git--review
+     root (hunk-notes-git-revision-args revision)
+     (format "*hunk-notes git %s*" revision)
      nil revision (format "git-revision:%s" revision))))
 
 ;;;###autoload
-(defun ai-code-review-git-review-range (base target)
+(defun hunk-notes-git-review-range (base target)
   "Review Git diff from BASE to TARGET."
   (interactive "sGit base revision: \nsGit target revision: ")
-  (let ((root (ai-code-review-git-root)))
-    (ai-code-review-git--review
-     root (ai-code-review-git-range-args base target)
-     (format "*ai-code-review git %s..%s*" base target)
+  (let ((root (hunk-notes-git-root)))
+    (hunk-notes-git--review
+     root (hunk-notes-git-range-args base target)
+     (format "*hunk-notes git %s..%s*" base target)
      base target (format "git-range:%s..%s" base target))))
 
-(provide 'ai-code-review-git)
-;;; ai-code-review-git.el ends here
+(provide 'hunk-notes-git)
+;;; hunk-notes-git.el ends here

@@ -1,4 +1,4 @@
-;;; ai-code-review-diff.el --- Unified diff parsing for ai-code-review -*- lexical-binding: t; -*-
+;;; hunk-notes-diff.el --- Unified diff parsing for hunk-notes -*- lexical-binding: t; -*-
 
 ;;; Commentary:
 
@@ -10,7 +10,7 @@
 (require 'cl-lib)
 (require 'subr-x)
 
-(defun ai-code-review-diff--strip-path (path)
+(defun hunk-notes-diff--strip-path (path)
   "Normalize PATH from a unified diff header."
   (when path
     (setq path (string-trim path))
@@ -22,7 +22,7 @@
      ((string-prefix-p "b/" path) (substring path 2))
      (t path))))
 
-(defun ai-code-review-diff-parse-hunk-header (header)
+(defun hunk-notes-diff-parse-hunk-header (header)
   "Parse unified or combined diff hunk HEADER.
 Return a plist with :old-start, :old-count, :new-start and :new-count, or nil.
 Combined diffs, often used by Magit for unmerged files, also include
@@ -52,7 +52,7 @@ Combined diffs, often used by Magit for unmerged files, also include
           :prefix-width (1- (length (match-string 1 header)))
           :combined t))))
 
-(defun ai-code-review-diff--combined-line-info (line prefix-width)
+(defun hunk-notes-diff--combined-line-info (line prefix-width)
   "Return line info for combined diff LINE with PREFIX-WIDTH columns.
 The returned plist contains :change-type, :side, :has-new and :has-old."
   (when (and prefix-width (>= (length line) prefix-width))
@@ -71,7 +71,7 @@ The returned plist contains :change-type, :side, :has-new and :has-old."
        (t (list :change-type 'context :side 'new
                 :has-new t :has-old t))))))
 
-(defun ai-code-review-diff--line-kind ()
+(defun hunk-notes-diff--line-kind ()
   "Return the unified diff kind for the current line."
   (cond
    ((looking-at-p "^@@+ ") 'hunk)
@@ -86,11 +86,11 @@ The returned plist contains :change-type, :side, :has-new and :has-old."
    ((looking-at-p "^\\\\") 'metadata)
    (t 'metadata)))
 
-(defun ai-code-review-diff--line-text ()
+(defun hunk-notes-diff--line-text ()
   "Return current line as a string without properties."
   (buffer-substring-no-properties (line-beginning-position) (line-end-position)))
 
-(defun ai-code-review-diff--anchor-context ()
+(defun hunk-notes-diff--anchor-context ()
   "Return nearby diff text for use as a future re-anchoring hint."
   (save-excursion
     (let ((here (line-beginning-position))
@@ -102,26 +102,26 @@ The returned plist contains :change-type, :side, :has-new and :has-old."
           (push (cons (cond ((= (point) here) 'line)
                             ((< (point) here) 'before)
                             (t 'after))
-                      (ai-code-review-diff--line-text))
+                      (hunk-notes-diff--line-text))
                 lines))
         (forward-line 1))
       (nreverse lines))))
 
-(defun ai-code-review-diff--set-file-from-diff-git (line)
+(defun hunk-notes-diff--set-file-from-diff-git (line)
   "Return the new-side file name parsed from a diff header LINE."
   (cond
    ((string-match "^diff --git +a/\\(.+?\\) +b/\\(.+\\)$" line)
-    (ai-code-review-diff--strip-path (match-string 2 line)))
+    (hunk-notes-diff--strip-path (match-string 2 line)))
    ((string-match "^diff --\\(?:cc\\|combined\\) +\\(.+\\)$" line)
-    (ai-code-review-diff--strip-path (match-string 1 line)))))
+    (hunk-notes-diff--strip-path (match-string 1 line)))))
 
-(defun ai-code-review-diff--set-file-from-file-header (line)
+(defun hunk-notes-diff--set-file-from-file-header (line)
   "Return file name from a compact VC diff header LINE.
 This handles Jujutsu/Majutsu buffers such as `modified    README.org'."
   (when (string-match "^\\(?:modified\\|added\\|removed\\) +\\(.+\\)$" line)
-    (ai-code-review-diff--strip-path (match-string 1 line))))
+    (hunk-notes-diff--strip-path (match-string 1 line))))
 
-(defun ai-code-review-diff-position-info (&optional position)
+(defun hunk-notes-diff-position-info (&optional position)
   "Return unified diff information at POSITION, defaulting to point.
 The return value is a plist containing :file, :side, :line, :old-line,
 :new-line, :change-type, :hunk-header and :anchor-context.  Return nil when
@@ -137,11 +137,11 @@ POSITION is not on a changed or context line inside a hunk."
       (goto-char (point-min))
       (while (and (not result) (<= (point) target) (not (eobp)))
         (let* ((line-start (point))
-               (line (ai-code-review-diff--line-text))
-               (kind (ai-code-review-diff--line-kind)))
+               (line (hunk-notes-diff--line-text))
+               (kind (hunk-notes-diff--line-kind)))
           (pcase kind
             ('diff-git
-             (setq file (ai-code-review-diff--set-file-from-diff-git line)
+             (setq file (hunk-notes-diff--set-file-from-diff-git line)
                    old-file nil
                    new-file nil
                    hunk nil
@@ -150,7 +150,7 @@ POSITION is not on a changed or context line inside a hunk."
                    hunk-prefix-width nil
                    hunk-combined nil))
             ('file-header
-             (setq file (ai-code-review-diff--set-file-from-file-header line)
+             (setq file (hunk-notes-diff--set-file-from-file-header line)
                    old-file nil
                    new-file nil
                    hunk nil
@@ -159,13 +159,13 @@ POSITION is not on a changed or context line inside a hunk."
                    hunk-prefix-width nil
                    hunk-combined nil))
             ('old-file
-             (setq old-file (ai-code-review-diff--strip-path (substring line 4)))
+             (setq old-file (hunk-notes-diff--strip-path (substring line 4)))
              (unless file (setq file old-file)))
             ('new-file
-             (setq new-file (ai-code-review-diff--strip-path (substring line 4)))
+             (setq new-file (hunk-notes-diff--strip-path (substring line 4)))
              (when new-file (setq file new-file)))
             ('hunk
-             (let ((parsed (ai-code-review-diff-parse-hunk-header line)))
+             (let ((parsed (hunk-notes-diff-parse-hunk-header line)))
                (if parsed
                    (setq hunk line
                          old-line (plist-get parsed :old-start)
@@ -184,7 +184,7 @@ POSITION is not on a changed or context line inside a hunk."
             ((or 'added 'removed 'context 'metadata)
              (if hunk-combined
                  (let ((combined (and (not (eq kind 'metadata))
-                                      (ai-code-review-diff--combined-line-info
+                                      (hunk-notes-diff--combined-line-info
                                        line hunk-prefix-width))))
                    (when (and combined (= line-start target-line-start))
                      (let* ((side (plist-get combined :side))
@@ -198,7 +198,7 @@ POSITION is not on a changed or context line inside a hunk."
                                      :new-line (and (plist-get combined :has-new)
                                                     new-line)
                                      :change-type change-type :hunk-header hunk
-                                     :anchor-context (ai-code-review-diff--anchor-context))))))
+                                     :anchor-context (hunk-notes-diff--anchor-context))))))
                    (when (and combined (plist-get combined :has-old) old-line)
                      (cl-incf old-line))
                    (when (and combined (plist-get combined :has-new) new-line)
@@ -210,17 +210,17 @@ POSITION is not on a changed or context line inside a hunk."
                           (list :file file :side 'new :line new-line
                                 :old-line nil :new-line new-line
                                 :change-type 'added :hunk-header hunk
-                                :anchor-context (ai-code-review-diff--anchor-context)))
+                                :anchor-context (hunk-notes-diff--anchor-context)))
                          ('removed
                           (list :file file :side 'old :line old-line
                                 :old-line old-line :new-line nil
                                 :change-type 'removed :hunk-header hunk
-                                :anchor-context (ai-code-review-diff--anchor-context)))
+                                :anchor-context (hunk-notes-diff--anchor-context)))
                          ('context
                           (list :file file :side 'new :line new-line
                                 :old-line old-line :new-line new-line
                                 :change-type 'context :hunk-header hunk
-                                :anchor-context (ai-code-review-diff--anchor-context)))
+                                :anchor-context (hunk-notes-diff--anchor-context)))
                          (_ nil))))
                (pcase kind
                  ('added (when new-line (cl-incf new-line)))
@@ -232,7 +232,7 @@ POSITION is not on a changed or context line inside a hunk."
     (set-marker target nil)
     result))
 
-(defun ai-code-review-diff-find-position (file side line &optional change-type)
+(defun hunk-notes-diff-find-position (file side line &optional change-type)
   "Find buffer position for FILE SIDE LINE in the current diff.
 When CHANGE-TYPE is non-nil, prefer an exact change-type match.  Return a
 position at the end of the matching diff line, or nil."
@@ -242,28 +242,28 @@ position at the end of the matching diff line, or nil."
       (goto-char (point-min))
       (while (and (not best) (not (eobp)))
         (unless (get-text-property (line-beginning-position)
-                                   'ai-code-review-comment-block)
-          (let* ((text (ai-code-review-diff--line-text))
-                 (kind (ai-code-review-diff--line-kind)))
+                                   'hunk-notes-comment-block)
+          (let* ((text (hunk-notes-diff--line-text))
+                 (kind (hunk-notes-diff--line-kind)))
             (pcase kind
               ('diff-git
-               (setq current-file (ai-code-review-diff--set-file-from-diff-git text)
+               (setq current-file (hunk-notes-diff--set-file-from-diff-git text)
                      hunk nil old-line nil new-line nil
                      hunk-prefix-width nil hunk-combined nil))
               ('file-header
-               (setq current-file (ai-code-review-diff--set-file-from-file-header text)
+               (setq current-file (hunk-notes-diff--set-file-from-file-header text)
                      hunk nil old-line nil new-line nil
                      hunk-prefix-width nil hunk-combined nil))
               ('old-file
                (unless current-file
-                 (setq current-file (ai-code-review-diff--strip-path
+                 (setq current-file (hunk-notes-diff--strip-path
                                      (substring text 4)))))
               ('new-file
-               (let ((new-file (ai-code-review-diff--strip-path
+               (let ((new-file (hunk-notes-diff--strip-path
                                 (substring text 4))))
                  (when new-file (setq current-file new-file))))
               ('hunk
-               (let ((parsed (ai-code-review-diff-parse-hunk-header text)))
+               (let ((parsed (hunk-notes-diff-parse-hunk-header text)))
                  (if parsed
                      (setq hunk text
                            old-line (plist-get parsed :old-start)
@@ -275,7 +275,7 @@ position at the end of the matching diff line, or nil."
               ((or 'added 'removed 'context 'metadata)
                (if hunk-combined
                    (let ((combined (and (not (eq kind 'metadata))
-                                        (ai-code-review-diff--combined-line-info
+                                        (hunk-notes-diff--combined-line-info
                                          text hunk-prefix-width))))
                      (when combined
                        (let* ((this-side (plist-get combined :side))
@@ -331,9 +331,9 @@ position at the end of the matching diff line, or nil."
         (forward-line 1)))
     (or best fallback)))
 
-(defun ai-code-review-diff-current-file ()
+(defun hunk-notes-diff-current-file ()
   "Return the diff file at point, or nil."
-  (plist-get (ai-code-review-diff-position-info) :file))
+  (plist-get (hunk-notes-diff-position-info) :file))
 
-(provide 'ai-code-review-diff)
-;;; ai-code-review-diff.el ends here
+(provide 'hunk-notes-diff)
+;;; hunk-notes-diff.el ends here

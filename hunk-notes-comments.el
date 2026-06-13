@@ -1,4 +1,4 @@
-;;; ai-code-review-comments.el --- Comment operations for ai-code-review -*- lexical-binding: t; -*-
+;;; hunk-notes-comments.el --- Comment operations for hunk-notes -*- lexical-binding: t; -*-
 
 ;;; Commentary:
 
@@ -8,52 +8,52 @@
 
 (require 'cl-lib)
 (require 'subr-x)
-(require 'ai-code-review-core)
-(require 'ai-code-review-diff)
+(require 'hunk-notes-core)
+(require 'hunk-notes-diff)
 
-(defvar-local ai-code-review--id-counter 0
+(defvar-local hunk-notes--id-counter 0
   "Buffer-local counter used to generate readable comment IDs for a review.")
 
-(defun ai-code-review--next-comment-id ()
+(defun hunk-notes--next-comment-id ()
   "Return a new readable review comment id."
-  (cl-incf ai-code-review--id-counter)
-  (format "R%d" ai-code-review--id-counter))
+  (cl-incf hunk-notes--id-counter)
+  (format "R%d" hunk-notes--id-counter))
 
-(defun ai-code-review--sync-id-counter (comments)
+(defun hunk-notes--sync-id-counter (comments)
   "Advance the buffer-local id counter to cover existing COMMENTS."
-  (setq ai-code-review--id-counter 0)
+  (setq hunk-notes--id-counter 0)
   (dolist (comment comments)
-    (let ((id (ai-code-review-comment-id comment)))
+    (let ((id (hunk-notes-comment-id comment)))
       (when (and (stringp id) (string-match "^R\\([0-9]+\\)$" id))
-        (setq ai-code-review--id-counter
-              (max ai-code-review--id-counter
+        (setq hunk-notes--id-counter
+              (max hunk-notes--id-counter
                    (string-to-number (match-string 1 id))))))))
 
-(defun ai-code-review--renumber-comments (&optional comments)
+(defun hunk-notes--renumber-comments (&optional comments)
   "Sort and renumber COMMENTS, defaulting to current buffer comments.
 Review ids are intentionally buffer-local display ids.  Keep them sequential in
 diff order so prompts and inline blocks read from top to bottom as R1, R2, ..."
-  (let ((renumbered (sort (or comments ai-code-review-comments)
-                          #'ai-code-review-comment<)))
+  (let ((renumbered (sort (or comments hunk-notes-comments)
+                          #'hunk-notes-comment<)))
     (cl-loop for comment in renumbered
              for n from 1
-             do (setf (ai-code-review-comment-id comment) (format "R%d" n)))
-    (setq ai-code-review-comments renumbered)
-    (ai-code-review--sync-id-counter ai-code-review-comments)
-    ai-code-review-comments))
+             do (setf (hunk-notes-comment-id comment) (format "R%d" n)))
+    (setq hunk-notes-comments renumbered)
+    (hunk-notes--sync-id-counter hunk-notes-comments)
+    hunk-notes-comments))
 
-(defun ai-code-review--apply-position-info-to-comment (comment info)
+(defun hunk-notes--apply-position-info-to-comment (comment info)
   "Update COMMENT anchor fields from diff position INFO."
-  (setf (ai-code-review-comment-file comment) (plist-get info :file)
-        (ai-code-review-comment-side comment) (plist-get info :side)
-        (ai-code-review-comment-line-start comment) (plist-get info :line)
-        (ai-code-review-comment-line-end comment) (plist-get info :line)
-        (ai-code-review-comment-change-type comment) (plist-get info :change-type)
-        (ai-code-review-comment-hunk-header comment) (plist-get info :hunk-header)
-        (ai-code-review-comment-anchor-context comment) (plist-get info :anchor-context)
-        (ai-code-review-comment-updated-at comment) (ai-code-review--now-string)))
+  (setf (hunk-notes-comment-file comment) (plist-get info :file)
+        (hunk-notes-comment-side comment) (plist-get info :side)
+        (hunk-notes-comment-line-start comment) (plist-get info :line)
+        (hunk-notes-comment-line-end comment) (plist-get info :line)
+        (hunk-notes-comment-change-type comment) (plist-get info :change-type)
+        (hunk-notes-comment-hunk-header comment) (plist-get info :hunk-header)
+        (hunk-notes-comment-anchor-context comment) (plist-get info :anchor-context)
+        (hunk-notes-comment-updated-at comment) (hunk-notes--now-string)))
 
-(defun ai-code-review-repair-comment-anchors-from-blocks ()
+(defun hunk-notes-repair-comment-anchors-from-blocks ()
   "Repair comment file/line anchors from visible inline comment blocks.
 This is useful after parser fixes or when older comments were created before a
 file header format was understood."
@@ -63,73 +63,73 @@ file header format was understood."
     (save-excursion
       (while (< pos (point-max))
         (setq pos (or (next-single-property-change
-                       pos 'ai-code-review-comment-block nil (point-max))
+                       pos 'hunk-notes-comment-block nil (point-max))
                       (point-max)))
         (when (and (< pos (point-max))
-                   (get-text-property pos 'ai-code-review-comment-block))
-          (let ((comment (get-text-property pos 'ai-code-review-comment)))
+                   (get-text-property pos 'hunk-notes-comment-block))
+          (let ((comment (get-text-property pos 'hunk-notes-comment)))
             (when comment
               (goto-char pos)
               (beginning-of-line)
-              (let ((info (ai-code-review-diff-position-info)))
+              (let ((info (hunk-notes-diff-position-info)))
                 (when (and info (plist-get info :file))
-                  (ai-code-review--apply-position-info-to-comment comment info)
+                  (hunk-notes--apply-position-info-to-comment comment info)
                   (cl-incf count)))))
           (setq pos (or (next-single-property-change
-                         pos 'ai-code-review-comment-block nil (point-max))
+                         pos 'hunk-notes-comment-block nil (point-max))
                         (point-max))))))
-    (ai-code-review--sync-id-counter ai-code-review-comments)
+    (hunk-notes--sync-id-counter hunk-notes-comments)
     (when (called-interactively-p 'interactive)
       (message "Repaired %d review comment anchors" count))
     count))
 
-(defun ai-code-review--comment-summary (comment)
+(defun hunk-notes--comment-summary (comment)
   "Return a compact display string for COMMENT."
   (format "%s %s:%s %s%s"
-          (ai-code-review-comment-id comment)
-          (ai-code-review-comment-file comment)
-          (ai-code-review-comment-line-start comment)
-          (if (ai-code-review-comment-resolved comment) "[resolved] " "")
+          (hunk-notes-comment-id comment)
+          (hunk-notes-comment-file comment)
+          (hunk-notes-comment-line-start comment)
+          (if (hunk-notes-comment-resolved comment) "[resolved] " "")
           (replace-regexp-in-string
            "[\n\r]+" " "
-           (truncate-string-to-width (or (ai-code-review-comment-body comment) "") 72))))
+           (truncate-string-to-width (or (hunk-notes-comment-body comment) "") 72))))
 
-(defun ai-code-review--comment-at-point ()
+(defun hunk-notes--comment-at-point ()
   "Return a comment at point, using text/overlay properties or diff position info."
-  (or (get-text-property (point) 'ai-code-review-comment)
+  (or (get-text-property (point) 'hunk-notes-comment)
       (cl-loop for ov in (overlays-at (point))
-               for comment = (overlay-get ov 'ai-code-review-comment)
+               for comment = (overlay-get ov 'hunk-notes-comment)
                when comment return comment)
-      (let ((info (ai-code-review-diff-position-info)))
+      (let ((info (hunk-notes-diff-position-info)))
         (when info
           (let* ((matches
                   (cl-remove-if-not
                    (lambda (comment)
-                     (and (equal (ai-code-review-comment-file comment)
+                     (and (equal (hunk-notes-comment-file comment)
                                  (plist-get info :file))
-                          (eq (ai-code-review-comment-side comment)
+                          (eq (hunk-notes-comment-side comment)
                               (plist-get info :side))
-                          (= (ai-code-review-comment-line-start comment)
+                          (= (hunk-notes-comment-line-start comment)
                              (plist-get info :line))))
-                   ai-code-review-comments)))
+                   hunk-notes-comments)))
             (cond
              ((null matches) nil)
              ((null (cdr matches)) (car matches))
              (t
               (let* ((choice (completing-read
                               "Comment: "
-                              (mapcar #'ai-code-review--comment-summary matches)
+                              (mapcar #'hunk-notes--comment-summary matches)
                               nil t))
                      (idx (cl-position choice matches
                                        :test #'string=
-                                       :key #'ai-code-review--comment-summary)))
+                                       :key #'hunk-notes--comment-summary)))
                 (nth idx matches)))))))))
 
-(defun ai-code-review--read-comment-body (&optional initial prompt)
+(defun hunk-notes--read-comment-body (&optional initial prompt)
   "Read a comment body with INITIAL text and PROMPT."
   (read-from-minibuffer (or prompt "Comment: ") initial nil nil nil initial))
 
-(defun ai-code-review--comment-position-info-at-point-or-region ()
+(defun hunk-notes--comment-position-info-at-point-or-region ()
   "Return diff position info for point or the active region.
 When the region is active, it must cover changed/context lines in one file and
 one hunk.  Mixed old/new selections are allowed; the returned info records both
@@ -142,8 +142,8 @@ old and new ranges when present."
           (goto-char beg)
           (while (< (line-beginning-position) end)
             (unless (get-text-property (line-beginning-position)
-                                       'ai-code-review-comment-block)
-              (let ((info (ai-code-review-diff-position-info (point))))
+                                       'hunk-notes-comment-block)
+              (let ((info (hunk-notes-diff-position-info (point))))
                 (when info (push info infos))))
             (forward-line 1)))
         (setq infos (nreverse infos))
@@ -188,7 +188,7 @@ old and new ranges when present."
                           :change-type (if (cdr change-types)
                                            'mixed
                                          (car change-types)))))))
-    (let ((info (ai-code-review-diff-position-info)))
+    (let ((info (hunk-notes-diff-position-info)))
       (when info
         (append info (list :line-end (plist-get info :line)
                            :old-line-start (plist-get info :old-line)
@@ -196,16 +196,16 @@ old and new ranges when present."
                            :new-line-start (plist-get info :new-line)
                            :new-line-end (plist-get info :new-line)))))))
 
-(defun ai-code-review--new-comment-from-info (info body)
+(defun hunk-notes--new-comment-from-info (info body)
   "Create and add a new comment from diff position INFO with BODY."
-  (let* ((now (ai-code-review--now-string))
+  (let* ((now (hunk-notes--now-string))
          (comment
-          (ai-code-review-comment-create
-           :id (ai-code-review--next-comment-id)
-           :repo-root (or ai-code-review-repo-root default-directory)
-           :backend ai-code-review-backend
-           :base-revision ai-code-review-base-revision
-           :target-revision ai-code-review-target-revision
+          (hunk-notes-comment-create
+           :id (hunk-notes--next-comment-id)
+           :repo-root (or hunk-notes-repo-root default-directory)
+           :backend hunk-notes-backend
+           :base-revision hunk-notes-base-revision
+           :target-revision hunk-notes-target-revision
            :file (plist-get info :file)
            :side (plist-get info :side)
            :line-start (plist-get info :line)
@@ -222,263 +222,263 @@ old and new ranges when present."
            :resolved nil
            :created-at now
            :updated-at now)))
-    (push comment ai-code-review-comments)
-    (ai-code-review--renumber-comments)
-    (ai-code-review--maybe-refresh t)
-    (message "Added comment %s" (ai-code-review-comment-id comment))
+    (push comment hunk-notes-comments)
+    (hunk-notes--renumber-comments)
+    (hunk-notes--maybe-refresh t)
+    (message "Added comment %s" (hunk-notes-comment-id comment))
     comment))
 
-(defun ai-code-review-add-comment (body &optional info)
+(defun hunk-notes-add-comment (body &optional info)
   "Add an inline review comment with BODY at point or active region.
 Optional INFO is precomputed diff position information."
   (interactive
-   (let ((info (ai-code-review--comment-position-info-at-point-or-region)))
-     (list (ai-code-review--read-comment-body nil "Comment: ") info)))
-  (let ((info (or info (ai-code-review--comment-position-info-at-point-or-region))))
+   (let ((info (hunk-notes--comment-position-info-at-point-or-region)))
+     (list (hunk-notes--read-comment-body nil "Comment: ") info)))
+  (let ((info (or info (hunk-notes--comment-position-info-at-point-or-region))))
     (unless info
       (user-error "Point is not on a changed or context line in a unified diff"))
     (when (string-empty-p (string-trim body))
       (user-error "Empty comment"))
-    (ai-code-review--new-comment-from-info info body)))
+    (hunk-notes--new-comment-from-info info body)))
 
-(defun ai-code-review-comment< (a b)
+(defun hunk-notes-comment< (a b)
   "Return non-nil when comment A should sort before comment B."
-  (let ((fa (or (ai-code-review-comment-file a) ""))
-        (fb (or (ai-code-review-comment-file b) "")))
+  (let ((fa (or (hunk-notes-comment-file a) ""))
+        (fb (or (hunk-notes-comment-file b) "")))
     (or (string< fa fb)
         (and (string= fa fb)
-             (< (or (ai-code-review-comment-line-start a) 0)
-                (or (ai-code-review-comment-line-start b) 0))))))
+             (< (or (hunk-notes-comment-line-start a) 0)
+                (or (hunk-notes-comment-line-start b) 0))))))
 
-(defun ai-code-review-renumber-comments ()
+(defun hunk-notes-renumber-comments ()
   "Renumber current buffer's review comments sequentially from R1."
   (interactive)
-  (ai-code-review--renumber-comments)
-  (dolist (comment ai-code-review-comments)
-    (setf (ai-code-review-comment-updated-at comment)
-          (ai-code-review--now-string)))
-  (ai-code-review--maybe-refresh t)
-  (message "Renumbered %d review comments" (length ai-code-review-comments)))
+  (hunk-notes--renumber-comments)
+  (dolist (comment hunk-notes-comments)
+    (setf (hunk-notes-comment-updated-at comment)
+          (hunk-notes--now-string)))
+  (hunk-notes--maybe-refresh t)
+  (message "Renumbered %d review comments" (length hunk-notes-comments)))
 
-(defun ai-code-review-edit-comment (comment body)
+(defun hunk-notes-edit-comment (comment body)
   "Edit COMMENT at point, replacing its body with BODY."
   (interactive
-   (let ((comment (ai-code-review--comment-at-point)))
+   (let ((comment (hunk-notes--comment-at-point)))
      (unless comment (user-error "No review comment at point"))
      (list comment
-           (ai-code-review--read-comment-body
-            (ai-code-review-comment-body comment)
-            (format "Edit %s: " (ai-code-review-comment-id comment))))))
+           (hunk-notes--read-comment-body
+            (hunk-notes-comment-body comment)
+            (format "Edit %s: " (hunk-notes-comment-id comment))))))
   (if (string-empty-p (string-trim body))
       (progn
-        (ai-code-review--delete-comment comment)
-        (message "Removed empty comment %s" (ai-code-review-comment-id comment))
+        (hunk-notes--delete-comment comment)
+        (message "Removed empty comment %s" (hunk-notes-comment-id comment))
         nil)
-    (setf (ai-code-review-comment-body comment) body
-          (ai-code-review-comment-updated-at comment) (ai-code-review--now-string))
-    (ai-code-review--maybe-refresh t)
-    (message "Updated comment %s" (ai-code-review-comment-id comment))
+    (setf (hunk-notes-comment-body comment) body
+          (hunk-notes-comment-updated-at comment) (hunk-notes--now-string))
+    (hunk-notes--maybe-refresh t)
+    (message "Updated comment %s" (hunk-notes-comment-id comment))
     comment))
 
-(defun ai-code-review-comment-dwim (body &optional info)
+(defun hunk-notes-comment-dwim (body &optional info)
   "Add or edit a review comment at point using minibuffer BODY.
 If point is on an existing comment, update that comment.  Otherwise create a
 new comment on the changed/context diff line or active region.  Editing an
 existing comment to an empty body removes it."
   (interactive
-   (let ((comment (ai-code-review--comment-at-point)))
-     (list (ai-code-review--read-comment-body
-            (and comment (ai-code-review-comment-body comment))
+   (let ((comment (hunk-notes--comment-at-point)))
+     (list (hunk-notes--read-comment-body
+            (and comment (hunk-notes-comment-body comment))
             (if comment
-                (format "Edit %s: " (ai-code-review-comment-id comment))
+                (format "Edit %s: " (hunk-notes-comment-id comment))
               "New comment: "))
            (unless comment
-             (ai-code-review--comment-position-info-at-point-or-region)))))
-  (let ((comment (ai-code-review--comment-at-point)))
+             (hunk-notes--comment-position-info-at-point-or-region)))))
+  (let ((comment (hunk-notes--comment-at-point)))
     (if comment
-        (ai-code-review-edit-comment comment body)
-      (ai-code-review-add-comment body info))))
+        (hunk-notes-edit-comment comment body)
+      (hunk-notes-add-comment body info))))
 
-(defvar-local ai-code-review-comment-edit--source-buffer nil
+(defvar-local hunk-notes-comment-edit--source-buffer nil
   "Review buffer that owns the comment being edited.")
 
-(defvar-local ai-code-review-comment-edit--comment nil
-  "Comment being edited in `ai-code-review-comment-edit-mode'.")
+(defvar-local hunk-notes-comment-edit--comment nil
+  "Comment being edited in `hunk-notes-comment-edit-mode'.")
 
-(defvar-local ai-code-review-comment-edit--position-info nil
+(defvar-local hunk-notes-comment-edit--position-info nil
   "Diff position info for a new comment being edited in block mode.")
 
-(defvar ai-code-review-comment-edit-mode-map
+(defvar hunk-notes-comment-edit-mode-map
   (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "C-c C-c") #'ai-code-review-comment-edit-save)
-    (define-key map (kbd "C-c C-k") #'ai-code-review-comment-edit-cancel)
+    (define-key map (kbd "C-c C-c") #'hunk-notes-comment-edit-save)
+    (define-key map (kbd "C-c C-k") #'hunk-notes-comment-edit-cancel)
     map)
-  "Keymap for `ai-code-review-comment-edit-mode'.")
+  "Keymap for `hunk-notes-comment-edit-mode'.")
 
-(define-derived-mode ai-code-review-comment-edit-mode text-mode "AI-Review-Edit"
-  "Mode for editing one AI code review comment body.
+(define-derived-mode hunk-notes-comment-edit-mode text-mode "Hunk-Notes-Edit"
+  "Mode for editing one hunk notes comment body.
 Use `C-c C-c' to save the edited comment and `C-c C-k' to cancel.")
 
-(defun ai-code-review--open-comment-edit-buffer (source comment position-info)
+(defun hunk-notes--open-comment-edit-buffer (source comment position-info)
   "Open a block edit buffer from SOURCE for COMMENT or POSITION-INFO."
   (let ((buf (get-buffer-create
               (if comment
-                  (format "*ai-code-review-edit-%s*"
-                          (ai-code-review-comment-id comment))
-                "*ai-code-review-new-comment*"))))
+                  (format "*hunk-notes-edit-%s*"
+                          (hunk-notes-comment-id comment))
+                "*hunk-notes-new-comment*"))))
     (with-current-buffer buf
       (setq buffer-read-only nil)
       (erase-buffer)
       (when comment
-        (insert (or (ai-code-review-comment-body comment) "")))
+        (insert (or (hunk-notes-comment-body comment) "")))
       (goto-char (point-min))
-      (ai-code-review-comment-edit-mode)
-      (setq ai-code-review-comment-edit--source-buffer source
-            ai-code-review-comment-edit--comment comment
-            ai-code-review-comment-edit--position-info position-info)
+      (hunk-notes-comment-edit-mode)
+      (setq hunk-notes-comment-edit--source-buffer source
+            hunk-notes-comment-edit--comment comment
+            hunk-notes-comment-edit--position-info position-info)
       (message "Edit comment, then C-c C-c to save or C-c C-k to cancel"))
     (pop-to-buffer buf)))
 
-(defun ai-code-review-edit-comment-block (comment)
+(defun hunk-notes-edit-comment-block (comment)
   "Edit COMMENT in a dedicated editable buffer."
   (interactive
-   (let ((comment (ai-code-review--comment-at-point)))
+   (let ((comment (hunk-notes--comment-at-point)))
      (unless comment (user-error "No review comment at point"))
      (list comment)))
-  (ai-code-review--open-comment-edit-buffer (current-buffer) comment nil))
+  (hunk-notes--open-comment-edit-buffer (current-buffer) comment nil))
 
-(defun ai-code-review-comment-block-dwim ()
+(defun hunk-notes-comment-block-dwim ()
   "Add or edit a review comment in a dedicated block edit buffer.
 If point is on an existing comment, edit that comment.  Otherwise start a new
 multi-line comment on the changed/context diff line at point.  Saving an empty
 edit removes an existing comment or cancels a new one."
   (interactive)
-  (let ((comment (ai-code-review--comment-at-point)))
+  (let ((comment (hunk-notes--comment-at-point)))
     (if comment
-        (ai-code-review--open-comment-edit-buffer (current-buffer) comment nil)
-      (let ((info (ai-code-review--comment-position-info-at-point-or-region)))
+        (hunk-notes--open-comment-edit-buffer (current-buffer) comment nil)
+      (let ((info (hunk-notes--comment-position-info-at-point-or-region)))
         (unless info
           (user-error "Point is not on a changed or context line in a unified diff"))
-        (ai-code-review--open-comment-edit-buffer (current-buffer) nil info)))))
+        (hunk-notes--open-comment-edit-buffer (current-buffer) nil info)))))
 
-(defun ai-code-review-comment-edit-save ()
-  "Save the current `ai-code-review-comment-edit-mode' buffer back to review."
+(defun hunk-notes-comment-edit-save ()
+  "Save the current `hunk-notes-comment-edit-mode' buffer back to review."
   (interactive)
-  (unless (and ai-code-review-comment-edit--source-buffer
-               (buffer-live-p ai-code-review-comment-edit--source-buffer)
-               (or ai-code-review-comment-edit--comment
-                   ai-code-review-comment-edit--position-info))
+  (unless (and hunk-notes-comment-edit--source-buffer
+               (buffer-live-p hunk-notes-comment-edit--source-buffer)
+               (or hunk-notes-comment-edit--comment
+                   hunk-notes-comment-edit--position-info))
     (user-error "This buffer is not connected to a live review comment"))
   (let ((body (string-trim (buffer-substring-no-properties
                             (point-min) (point-max))))
-        (source ai-code-review-comment-edit--source-buffer)
-        (comment ai-code-review-comment-edit--comment)
-        (position-info ai-code-review-comment-edit--position-info))
+        (source hunk-notes-comment-edit--source-buffer)
+        (comment hunk-notes-comment-edit--comment)
+        (position-info hunk-notes-comment-edit--position-info))
     (with-current-buffer source
       (if comment
-          (ai-code-review-edit-comment comment body)
+          (hunk-notes-edit-comment comment body)
         (if (string-empty-p body)
             (message "Canceled empty new comment")
-          (ai-code-review--new-comment-from-info position-info body))))
+          (hunk-notes--new-comment-from-info position-info body))))
     (kill-buffer (current-buffer))
     (pop-to-buffer source)))
 
-(defun ai-code-review-comment-edit-cancel ()
+(defun hunk-notes-comment-edit-cancel ()
   "Cancel editing the current review comment block."
   (interactive)
-  (let ((source ai-code-review-comment-edit--source-buffer))
+  (let ((source hunk-notes-comment-edit--source-buffer))
     (kill-buffer (current-buffer))
     (when (and source (buffer-live-p source))
       (pop-to-buffer source))))
 
-(defun ai-code-review--delete-comment (comment)
+(defun hunk-notes--delete-comment (comment)
   "Delete COMMENT without prompting."
-  (setq ai-code-review-comments (delq comment ai-code-review-comments))
-  (ai-code-review--renumber-comments)
-  (ai-code-review--maybe-refresh t))
+  (setq hunk-notes-comments (delq comment hunk-notes-comments))
+  (hunk-notes--renumber-comments)
+  (hunk-notes--maybe-refresh t))
 
-(defun ai-code-review-delete-comment (comment)
+(defun hunk-notes-delete-comment (comment)
   "Delete COMMENT at point after confirmation."
   (interactive
-   (let ((comment (ai-code-review--comment-at-point)))
+   (let ((comment (hunk-notes--comment-at-point)))
      (unless comment (user-error "No review comment at point"))
      (list comment)))
   (when (or noninteractive
             (yes-or-no-p (format "Delete comment %s? "
-                                 (ai-code-review-comment-id comment))))
-    (ai-code-review--delete-comment comment)
-    (message "Deleted comment %s" (ai-code-review-comment-id comment))))
+                                 (hunk-notes-comment-id comment))))
+    (hunk-notes--delete-comment comment)
+    (message "Deleted comment %s" (hunk-notes-comment-id comment))))
 
-(defun ai-code-review-remove-comment (comment)
+(defun hunk-notes-remove-comment (comment)
   "Remove COMMENT at point without confirmation.
 This is the direct remove-this-visible-review-block command."
   (interactive
-   (let ((comment (ai-code-review--comment-at-point)))
+   (let ((comment (hunk-notes--comment-at-point)))
      (unless comment (user-error "No review comment at point"))
      (list comment)))
-  (ai-code-review--delete-comment comment)
-  (message "Removed comment %s" (ai-code-review-comment-id comment)))
+  (hunk-notes--delete-comment comment)
+  (message "Removed comment %s" (hunk-notes-comment-id comment)))
 
-(defun ai-code-review-toggle-resolved (comment)
+(defun hunk-notes-toggle-resolved (comment)
   "Toggle resolved state for COMMENT at point."
   (interactive
-   (let ((comment (ai-code-review--comment-at-point)))
+   (let ((comment (hunk-notes--comment-at-point)))
      (unless comment (user-error "No review comment at point"))
      (list comment)))
-  (setf (ai-code-review-comment-resolved comment)
-        (not (ai-code-review-comment-resolved comment))
-        (ai-code-review-comment-updated-at comment) (ai-code-review--now-string))
-  (ai-code-review--maybe-refresh t)
+  (setf (hunk-notes-comment-resolved comment)
+        (not (hunk-notes-comment-resolved comment))
+        (hunk-notes-comment-updated-at comment) (hunk-notes--now-string))
+  (hunk-notes--maybe-refresh t)
   (message "%s comment %s"
-           (if (ai-code-review-comment-resolved comment) "Resolved" "Reopened")
-           (ai-code-review-comment-id comment)))
+           (if (hunk-notes-comment-resolved comment) "Resolved" "Reopened")
+           (hunk-notes-comment-id comment)))
 
-(defun ai-code-review--comment-position (comment)
+(defun hunk-notes--comment-position (comment)
   "Return buffer position for COMMENT, or nil."
-  (ai-code-review-diff-find-position
-   (ai-code-review-comment-file comment)
-   (ai-code-review-comment-side comment)
-   (ai-code-review-comment-line-start comment)
-   (ai-code-review-comment-change-type comment)))
+  (hunk-notes-diff-find-position
+   (hunk-notes-comment-file comment)
+   (hunk-notes-comment-side comment)
+   (hunk-notes-comment-line-start comment)
+   (hunk-notes-comment-change-type comment)))
 
-(defun ai-code-review-goto-comment (comment)
+(defun hunk-notes-goto-comment (comment)
   "Move point to COMMENT in the current diff buffer."
   (interactive
-   (list (let* ((choices (mapcar #'ai-code-review--comment-summary
-                                 ai-code-review-comments))
+   (list (let* ((choices (mapcar #'hunk-notes--comment-summary
+                                 hunk-notes-comments))
                 (choice (completing-read "Comment: " choices nil t))
                 (idx (cl-position choice choices :test #'string=)))
-           (nth idx ai-code-review-comments))))
-  (let ((pos (ai-code-review--comment-position comment)))
+           (nth idx hunk-notes-comments))))
+  (let ((pos (hunk-notes--comment-position comment)))
     (unless pos
       (user-error "Could not locate comment %s in this diff"
-                  (ai-code-review-comment-id comment)))
+                  (hunk-notes-comment-id comment)))
     (goto-char pos)
-    (message "%s" (ai-code-review--comment-summary comment))))
+    (message "%s" (hunk-notes--comment-summary comment))))
 
-(defun ai-code-review-next-comment ()
+(defun hunk-notes-next-comment ()
   "Jump to the next inline review comment."
   (interactive)
-  (unless ai-code-review-comments
+  (unless hunk-notes-comments
     (user-error "No review comments"))
   (let* ((positions
-          (sort (cl-loop for comment in ai-code-review-comments
-                         for pos = (ai-code-review--comment-position comment)
+          (sort (cl-loop for comment in hunk-notes-comments
+                         for pos = (hunk-notes--comment-position comment)
                          when pos collect (cons pos comment))
                 (lambda (a b) (< (car a) (car b)))))
          (next (or (cl-find-if (lambda (cell) (> (car cell) (point))) positions)
                    (car positions))))
     (goto-char (car next))
-    (message "%s" (ai-code-review--comment-summary (cdr next)))))
+    (message "%s" (hunk-notes--comment-summary (cdr next)))))
 
-(defun ai-code-review-previous-comment ()
+(defun hunk-notes-previous-comment ()
   "Jump to the previous inline review comment."
   (interactive)
-  (unless ai-code-review-comments
+  (unless hunk-notes-comments
     (user-error "No review comments"))
   (let* ((positions
-          (sort (cl-loop for comment in ai-code-review-comments
-                         for pos = (ai-code-review--comment-position comment)
+          (sort (cl-loop for comment in hunk-notes-comments
+                         for pos = (hunk-notes--comment-position comment)
                          when pos collect (cons pos comment))
                 (lambda (a b) (< (car a) (car b)))))
          (prev (or (car (last (cl-remove-if-not
@@ -486,26 +486,26 @@ This is the direct remove-this-visible-review-block command."
                                positions)))
                    (car (last positions)))))
     (goto-char (car prev))
-    (message "%s" (ai-code-review--comment-summary (cdr prev)))))
+    (message "%s" (hunk-notes--comment-summary (cdr prev)))))
 
-(defun ai-code-review-list-comments ()
+(defun hunk-notes-list-comments ()
   "Display current review comments in a simple list buffer."
   (interactive)
   (let* ((source (current-buffer))
-         (comments (buffer-local-value 'ai-code-review-comments source))
-         (buf (get-buffer-create "*ai-code-review-comments*")))
+         (comments (buffer-local-value 'hunk-notes-comments source))
+         (buf (get-buffer-create "*hunk-notes-comments*")))
     (with-current-buffer buf
       (setq buffer-read-only nil)
       (erase-buffer)
       (insert (format "Review comments for %s\n\n" (buffer-name source)))
       (if comments
           (dolist (comment comments)
-            (insert (ai-code-review--comment-summary comment) "\n"
-                    (or (ai-code-review-comment-body comment) "") "\n\n"))
+            (insert (hunk-notes--comment-summary comment) "\n"
+                    (or (hunk-notes-comment-body comment) "") "\n\n"))
         (insert "No comments.\n"))
       (setq buffer-read-only t)
       (special-mode))
     (display-buffer buf)))
 
-(provide 'ai-code-review-comments)
-;;; ai-code-review-comments.el ends here
+(provide 'hunk-notes-comments)
+;;; hunk-notes-comments.el ends here
